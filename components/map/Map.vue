@@ -48,8 +48,6 @@ const emit = defineEmits(['drawstart', 'drawend', 'select', 'hover'])
 
 const loading = ref(props.loading);
 watch(() => props.loading, (newVal) => { loading.value = newVal; }, { immediate:true });
-const drawEnabled = ref(props.drawEnabled);
-watch(() => props.drawEnabled, (newVal) => { drawEnabled.value = newVal; }, { immediate:true });
 
 let processedLayers = ref<any[]>([]);
 const wktFormat = new WKT();
@@ -125,6 +123,17 @@ function featureClick(e: SelectEvent) {
     }
 }
 
+const drawEnabled = ref(props.drawEnabled);
+const drawType = ref('Polygon');
+watch(() => props.drawEnabled, (newVal) => { drawEnabled.value = newVal; }, { immediate:true });
+
+const enableDrawMode = ref(drawEnabled.value);
+
+function changeDrawType (active, newType) {
+  drawType.value = newType;
+  enableDrawMode.value = active;
+}
+
 const drawnFeatures : any[] = ref([]);
 
 const drawstart = (event) => {
@@ -138,7 +147,6 @@ const drawend = (event) => {
     emit('drawend', { geoJSON, wkt });
 };
 
-const drawType = ref('Polygon');
 const clearDrawings = () => {
     if (drawSourceRef.value) {
         let s = drawSourceRef.value.source;
@@ -182,7 +190,7 @@ const clearDrawings = () => {
             <Layers.OlVectorLayer :displayInLayerSwitcher="false">
                 <Sources.OlSourceVector :projection="props.projection" ref="drawSourceRef">
                     <Interactions.OlInteractionDraw
-                        v-if="drawEnabled"
+                        v-if="enableDrawMode"
                         :type="drawType"
                         @drawend="drawend"
                         @drawstart="drawstart"
@@ -199,38 +207,29 @@ const clearDrawings = () => {
                 </Sources.OlSourceVector>
             </Layers.OlVectorLayer>
 
-            <slot></slot>
-
-            <Interactions.OlInteractionSelect :condition="pointerMove" @select="featureHover">
-                <Styles.OlStyle>
-                    <Styles.OlStyleStroke v-if="hoveredFeature?.get('lga')" :color="mapLayerStyles.lga.hoverColor" :width="mapLayerStyles.lga.hoverStrokeWidth"></Styles.OlStyleStroke>
-                    <Styles.OlStyleStroke v-else-if="hoveredFeature?.get('locality')" :color="mapLayerStyles.locality.hoverColor" :width="mapLayerStyles.locality.hoverStrokeWidth"></Styles.OlStyleStroke>
-                    <Styles.OlStyleCircle v-else-if="hoveredFeature?.get('place_name')" :radius="mapLayerStyles.placename.hoverRadius!">
-                        <Styles.OlStyleFill :color="mapLayerStyles.placename.hoverColor"></Styles.OlStyleFill>
-                    </Styles.OlStyleCircle>
-                    <Styles.OlStyleStroke v-else-if="hoveredFeature?.get('segment_id')" :color="mapLayerStyles.road.hoverColor" :width="mapLayerStyles.road.hoverStrokeWidth"></Styles.OlStyleStroke>
-                    <Styles.OlStyleStroke v-else-if="hoveredFeature?.get('lot')" :color="mapLayerStyles.address.hoverColor" :width="mapLayerStyles.address.hoverStrokeWidth"></Styles.OlStyleStroke>
-                    <Styles.OlStyleCircle v-else-if="hoveredFeature?.get('address')" :radius="mapLayerStyles.address.hoverRadius!">
-                        <Styles.OlStyleFill :color="mapLayerStyles.address.hoverColor"></Styles.OlStyleFill>
-                    </Styles.OlStyleCircle>
-                    <template v-else>
-                        <Styles.OlStyleStroke :color="hoverStyle.strokeColor" :width="hoverStyle.strokeWidth"></Styles.OlStyleStroke>
-                        <Styles.OlStyleFill :color="hoverStyle.fillColor"></Styles.OlStyleFill>
-                        <Styles.OlStyleCircle :radius="hoverStyle.radius">
-                            <Styles.OlStyleFill :color="hoverStyle.circleColor"></Styles.OlStyleFill>
-                            <Styles.OlStyleStroke :color="hoverStyle.circleStrokeColor" :width="hoverStyle.circleStrokeWidth"></Styles.OlStyleStroke>
-                        </Styles.OlStyleCircle>
-                    </template>
-                </Styles.OlStyle>
-            </Interactions.OlInteractionSelect>
-
             <Interactions.OlInteractionSelect :condition="click" @select="featureClick" ref="clickSelectRef">
+                <Styles.OlStyle>
+                    <Styles.OlStyleStroke color="blue" :width="2"></Styles.OlStyleStroke>
+                    <Styles.OlStyleFill color="rgba(0, 190, 110, 0.4)"></Styles.OlStyleFill>
+                    <Styles.OlStyleCircle :radius="5">
+                        <Styles.OlStyleFill color="#00dd11" />
+                        <Styles.OlStyleStroke color="blue" :width="2" />
+                    </Styles.OlStyleCircle>
+                </Styles.OlStyle>
             </Interactions.OlInteractionSelect>
 
             <MapControls.OlLayerswitcherControl />
             <MapControls.OlFullscreenControl />
             <MapControls.OlScalelineControl />
             <MapControls.OlZoomsliderControl />
+
+            <MapControls.OlControlBar>
+              <MapControls.OlToggleControl className="edit"
+                html="⏢"
+                title="Enable/disable draw mode"
+                :onToggle="(active) => changeDrawType(active, 'Polygon')"
+              />
+            </MapControls.OlControlBar>
 
             <Map.OlOverlay v-if="loading" :position="center" positioning="center-center">
                 <div class="overlay-content loading">

@@ -20,6 +20,7 @@
       layers.value = [];
   }
 
+  // When the user finishes drawing an area, we want to store it for the query.
   let latestDrawnPolygon = null;
 
   function drawend (feature) {
@@ -39,6 +40,10 @@
     document.getElementById(`arrow-icon-${index}`).classList.toggle("rotate-180");
   }
 
+  // we will put the query result geometries in here, so we can display them on the map
+  const resultLayers = ref<any[]>([]);
+
+  // Queries are sent to the SPARQL endpoint through prez API.
   const apiEndpoint = useGetPrezAPIEndpoint();
   let results = ref([]);
   async function executeQuery() {
@@ -90,13 +95,7 @@
                   <p>This scenario descrived the kind of data that is present per dataset in a given area.</p>
                   <h3 class="underline mt-4">Steps</h3>
                   <ol class="flex flex-col gap-4">
-                    <li class="flex flex-col">
-                        <div>Select an area on the map by enabling draw mode:</div>
-                        <div class="flex flex-row gap-2 items-center">
-                          <label for="checkbox">Enable Draw Mode</label>
-                          <input type="checkbox" id="checkbox" v-model="drawEnabled" />
-                        </div>
-                    </li>
+                    <li class="flex flex-col">Select an area on the map by enabling draw mode using the polygon icon at the top of the map</li>
                     <li class="flex flex-row"><span>Click GO</span><span class="ml-5"><button class="bg-gray-500 hover:bg-blue-700 text-white font-bold px-2 rounded" type="button" name="go-button" @click="executeQuery()">GO</button></span></li>
                     <li>Click on indicated data on the map or list below the map for details. The results will indicate the data for the last selected area</li>
                   </ol>
