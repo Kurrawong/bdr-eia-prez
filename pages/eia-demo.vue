@@ -51,15 +51,26 @@
       const sparqlQuery = `PREFIX geo: <http://www.opengis.net/ont/geosparql#>
       PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
 
-      SELECT DISTINCT ?dataset
+      SELECT DISTINCT ?dataset ?boundingBox
       WHERE {
         BIND("${latestDrawnPolygon}"^^geo:wktLiteral AS ?polygon)
-        ?dataset geo:boundingBox / geo:asWKT ?boundingbox .
-        FILTER(geof:sfWithin(?boundingbox, ?polygon))
+        ?dataset geo:boundingBox / geo:asWKT ?boundingBox .
+        FILTER(geof:sfWithin(?boundingBox, ?polygon))
       }`;
       let queryResults = await axios.get(apiEndpoint + '/sparql?query=' + encodeURIComponent(sparqlQuery));
       if (queryResults?.data?.results?.bindings) {
         results.value = queryResults.data.results.bindings.map((r) => r.dataset.value);
+        resultLayers.value = [{
+          "type": "FeatureCollection",
+          "title": "IDN data",
+          "features": queryResults.data.results.bindings.map((r) => {
+            return {
+              name: r.dataset.value,
+              type: 'Feature',
+              wkt: r.boundingBox.value
+            };
+          })
+        }];
       }
     } else {
       alert('Please draw an area on the map first')
@@ -111,7 +122,7 @@
                 :zoom="4"
                 :rotation="0"
                 :projection="'EPSG:4326'"
-                :layers="layers"
+                :layers="resultLayers"
                 :loading="loading"
                 :drawEnabled="drawEnabled"
                 @drawend="drawend" />
