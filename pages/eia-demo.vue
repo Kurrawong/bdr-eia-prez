@@ -46,28 +46,42 @@
   // Queries are sent to the SPARQL endpoint through prez API.
   const apiEndpoint = useGetPrezAPIEndpoint();
   let results = ref([]);
-  async function executeQuery() {
+  async function executeQueryScenario1() {
     if (latestDrawnPolygon) {
-      const sparqlQuery = `PREFIX geo: <http://www.opengis.net/ont/geosparql#>
-      PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
+      const sparqlQuery = `PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+# Parameter: ACT
+PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
+PREFIX schema: <https://schema.org/>
 
-      SELECT DISTINCT ?dataset ?boundingBox
-      WHERE {
-        BIND("${latestDrawnPolygon}"^^geo:wktLiteral AS ?polygon)
-        ?dataset geo:boundingBox / geo:asWKT ?boundingBox .
-        FILTER(geof:sfWithin(?boundingBox, ?polygon))
-      }`;
+SELECT ?iri ?name ?dataset_bb ?kw ?kw_label
+WHERE {
+    ?iri
+        a schema:Dataset ;
+        schema:name ?name ;
+        schema:keywords ?kw ;
+        geo:hasBoundingBox/geo:asWKT ?dataset_bb ;
+    .
+
+    ?kw skos:prefLabel ?kw_label .
+
+    BIND ("${latestDrawnPolygon}"^^geo:wktLiteral AS ?input_area)
+
+    FILTER geof:sfIntersects(?input_area, ?dataset_bb)
+}
+ORDER BY ?name`;
+
       let queryResults = await axios.get(apiEndpoint + '/sparql?query=' + encodeURIComponent(sparqlQuery));
       if (queryResults?.data?.results?.bindings) {
-        results.value = queryResults.data.results.bindings.map((r) => r.dataset.value);
+        results.value = queryResults.data.results.bindings.map((r) => { return { name: r.name.value, iri: r.iri.value } });
         resultLayers.value = [{
           "type": "FeatureCollection",
           "title": "IDN data",
           "features": queryResults.data.results.bindings.map((r) => {
             return {
-              name: r.dataset.value,
+              name: r.name.value,
               type: 'Feature',
-              wkt: r.boundingBox.value
+              wkt: r.dataset_bb.value
             };
           })
         }];
@@ -107,7 +121,7 @@
                   <h3 class="underline mt-4">Steps</h3>
                   <ol class="flex flex-col gap-4">
                     <li class="flex flex-col">Select an area on the map by enabling draw mode using the polygon icon at the top of the map</li>
-                    <li class="flex flex-row"><span>Click GO</span><span class="ml-5"><button class="bg-gray-500 hover:bg-blue-700 text-white font-bold px-2 rounded" type="button" name="go-button" @click="executeQuery()">GO</button></span></li>
+                    <li class="flex flex-row"><span>Click GO</span><span class="ml-5"><button class="bg-gray-500 hover:bg-blue-700 text-white font-bold px-2 rounded" type="button" name="go-button" @click="executeQueryScenario1()">GO</button></span></li>
                     <li>Click on indicated data on the map or list below the map for details. The results will indicate the data for the last selected area</li>
                   </ol>
                 </div>
@@ -130,7 +144,7 @@
           <div class="flex-1 results-list">
             <h2 class="text-2xl mt-8">Results</h2>
             <div class="results">
-              <li v-for="result in results"><a :href="result" target="_blank">{{result}}</a> </li>
+              <li v-for="result in results"><a :href="result.iri" target="_blank">{{result.name}}</a> </li>
             </div>
           </div>
         </div>
