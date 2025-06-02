@@ -127,11 +127,10 @@ const drawEnabled = ref(props.drawEnabled);
 const drawType = ref('Polygon');
 watch(() => props.drawEnabled, (newVal) => { drawEnabled.value = newVal; }, { immediate:true });
 
-const enableDrawMode = ref(drawEnabled.value);
+const drawModeEnabled = ref(drawEnabled.value);
 
-function changeDrawType (active, newType) {
-  drawType.value = newType;
-  enableDrawMode.value = active;
+function enableDrawMode () {
+  drawModeEnabled.value = !drawModeEnabled.value;
 }
 
 const drawnFeatures : any[] = ref([]);
@@ -140,11 +139,14 @@ const drawstart = (event) => {
     emit('drawstart', geoJSONFormat.writeFeature(event.feature, props.projection));
 };
 
+const drawToggle = useTemplateRef('drawToggle');
+
 const drawend = (event) => {
     const geoJSON = geoJSONFormat.writeFeature(event.feature, props.projection)
     const wkt = wktFormat.writeFeature(event.feature, props.projection)
     drawnFeatures.value.push(event.feature);
     emit('drawend', { geoJSON, wkt });
+    drawModeEnabled.value = false;
 };
 
 const clearDrawings = () => {
@@ -160,9 +162,6 @@ const clearDrawings = () => {
 
 <template>
     <div class="kai-map" ref="mapRef">
-        <div class="draw-controls flex flex-row gap-2 items-center" v-if="drawnFeatures?.length">
-            <button @click="clearDrawings">Clear</button>
-        </div>
         <Map.OlMap
             :loadTilesWhileAnimating="true"
             :loadTilesWhileInteracting="true"
@@ -190,7 +189,7 @@ const clearDrawings = () => {
             <Layers.OlVectorLayer :displayInLayerSwitcher="false">
                 <Sources.OlSourceVector :projection="props.projection" ref="drawSourceRef">
                     <Interactions.OlInteractionDraw
-                        v-if="enableDrawMode"
+                        v-if="drawModeEnabled"
                         :type="drawType"
                         @drawend="drawend"
                         @drawstart="drawstart"
@@ -223,13 +222,10 @@ const clearDrawings = () => {
             <MapControls.OlScalelineControl />
             <MapControls.OlZoomsliderControl />
 
-            <MapControls.OlControlBar>
-              <MapControls.OlToggleControl className="edit"
-                html="⏢"
-                title="Enable/disable draw mode"
-                :onToggle="(active) => changeDrawType(active, 'Polygon')"
-              />
-            </MapControls.OlControlBar>
+            <div class="custom-map-controls ol-unselectable ol-control ol-bar ol-group flex flex-row">
+              <button type="button" name="drawButton" title="Draw an area on the map" :className="drawModeEnabled ? 'active' : ''" @click="enableDrawMode">&#9186;</button>
+              <button type="button" name="clearButton" title="Clear all drawn features from the map" @click="clearDrawings">&#10060;</button>
+            </div>
 
             <Map.OlOverlay v-if="loading" :position="center" positioning="center-center">
                 <div class="overlay-content loading">
@@ -242,6 +238,7 @@ const clearDrawings = () => {
 
 <style scoped>
 .kai-map {
+    position: relative;
     height: 100%;
     width: 100%;
 }
@@ -253,5 +250,11 @@ const clearDrawings = () => {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+.custom-map-controls {
+  z-index: 1;
+}
+button.active {
+  background-color: lightgrey;
 }
 </style>

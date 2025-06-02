@@ -49,7 +49,6 @@
   async function executeQueryScenario1() {
     if (latestDrawnPolygon) {
       const sparqlQuery = `PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-# Parameter: ACT
 PREFIX geo: <http://www.opengis.net/ont/geosparql#>
 PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
 PREFIX schema: <https://schema.org/>
@@ -76,7 +75,7 @@ ORDER BY ?name`;
         results.value = queryResults.data.results.bindings.map((r) => { return { name: r.name.value, iri: r.iri.value } });
         resultLayers.value = [{
           "type": "FeatureCollection",
-          "title": "IDN data",
+          "title": "Data Presence",
           "features": queryResults.data.results.bindings.map((r) => {
             return {
               name: r.name.value,
@@ -144,7 +143,7 @@ ORDER BY ?name`;
           <div class="flex-1 results-list">
             <h2 class="text-2xl mt-8">Results</h2>
             <div class="results">
-              <li v-for="result in results"><a :href="result.iri" target="_blank">{{result.name}}</a> </li>
+              <li v-for="result in results"><a :href="`/object?uri=${result.iri}`" target="_blank">{{result.name}}</a> </li>
             </div>
           </div>
         </div>
