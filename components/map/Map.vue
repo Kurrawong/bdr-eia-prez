@@ -49,6 +49,29 @@ const emit = defineEmits(['drawstart', 'drawend', 'select', 'hover'])
 const loading = ref(props.loading);
 watch(() => props.loading, (newVal) => { loading.value = newVal; }, { immediate:true });
 
+const zoom = ref(props.zoom);
+watch(() => props.zoom, (newVal) => { zoom.value = newVal; }, { immediate:true });
+const center = ref(props.center);
+watch(() => props.center, (newVal) => { center.value = newVal; }, { immediate:true });
+const rotation = ref(props.rotation);
+watch(() => props.rotation, (newVal) => { rotation.value = newVal; }, { immediate:true });
+
+const currentZoom = ref(zoom.value);
+const currentCenter = ref(center.value);
+const currentRotation = ref(rotation.value);
+function resolutionChanged(event) {
+  currentZoom.value = event.target.getZoom();
+  emit('change:zoom', currentZoom.value);
+}
+function centerChanged(event) {
+  currentCenter.value = event.target.getCenter();
+  emit('change:center', currentCenter.value);
+}
+function rotationChanged(event) {
+  currentRotation.value = event.target.getRotation();
+  emit('change:rotation', currentRotation.value);
+}
+
 let processedLayers = ref<any[]>([]);
 const wktFormat = new WKT();
 const geoJSONFormat = new GeoJSON();
@@ -158,6 +181,17 @@ const clearDrawings = () => {
     }
     drawnFeatures.value = [];
 }
+
+const clearAll = () => {
+    processedLayers.value = [];
+    if (drawSourceRef.value) {
+        let s = drawSourceRef.value.source;
+        for (const drawnFeature of drawnFeatures.value) {
+            s.removeFeature(drawnFeature);
+        }
+    }
+    drawnFeatures.value = [];
+};
 </script>
 
 <template>
@@ -166,7 +200,15 @@ const clearDrawings = () => {
             :loadTilesWhileAnimating="true"
             :loadTilesWhileInteracting="true"
             style="height: 100%; width: 100%; min-height: 400px; min-width: 400px;">
-            <Map.OlView ref="viewRef" :center="props.center" :rotation="props.rotation" :zoom="zoom" :projection="props.projection" />
+            <Map.OlView ref="viewRef"
+              :projection="props.projection"
+              :center="center"
+              :rotation="rotation"
+              :zoom="zoom"
+              @change:center="centerChanged"
+              @change:resolution="resolutionChanged"
+              @change:rotation="rotationChanged"
+              />
 
             <!-- base maps -->
             <Layers.OlTileLayer title="OpenStreetMap" :visible="true" :displayInLayerSwitcher="false">
@@ -183,6 +225,9 @@ const clearDrawings = () => {
                 <Styles.OlStyle>
                     <Styles.OlStyleStroke :color="layer.strokeColor || drawStyle.strokeColor" :width="layer.strokeWidth || drawStyle.strokeWidth"></Styles.OlStyleStroke>
                     <Styles.OlStyleFill :color="layer.fillColor || drawStyle.fillColor"></Styles.OlStyleFill>
+                    <Styles.OlStyleCircle :radius="layer.radius || drawStyle.radius">
+                      <Styles.OlStyleFill :color="layer.circleColor || drawStyle.circleColor"></Styles.OlStyleFill>
+                    </Styles.OlStyleCircle>
                 </Styles.OlStyle>
             </Layers.OlVectorLayer>
 
@@ -224,7 +269,9 @@ const clearDrawings = () => {
 
             <div class="custom-map-controls ol-unselectable ol-control ol-bar ol-group flex flex-row">
               <button type="button" name="drawButton" title="Draw an area on the map" :className="drawModeEnabled ? 'active' : ''" @click="enableDrawMode">&#9186;</button>
-              <button type="button" name="clearButton" title="Clear all drawn features from the map" @click="clearDrawings">&#10060;</button>
+              <button type="button" name="clearButton" title="Clear all drawn features from the map" @click="clearDrawings">&#9003;</button>
+              <button type="button" name="clearButton" title="Clear all features from the map" @click="clearAll">&#10060;</button>
+
             </div>
 
             <Map.OlOverlay v-if="loading" :position="center" positioning="center-center">
