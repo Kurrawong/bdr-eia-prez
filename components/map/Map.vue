@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, provide, watch } from "vue";
+import { ref, provide, useTemplateRef, watch } from "vue";
 import { Map, Layers, Sources, Geometries, Styles, MapControls, Interactions, type Vue3OpenlayersGlobalOptions } from "vue3-openlayers";
 import type Feature from "ol/Feature";
 import { GeoJSON, WKT } from "ol/format";
@@ -9,6 +9,7 @@ import { getCenter, type Extent } from "ol/extent";
 import { SelectEvent } from "ol/interaction/Select";
 import { mapLayerStyles, drawStyle, hoverStyle } from "./mapstyles.ts";
 import 'vue3-openlayers/dist/vue3-openlayers.css';
+import MapTooltip from "./MapTooltip.vue";
 
 const props = defineProps({
     center: {
@@ -42,6 +43,18 @@ const props = defineProps({
     drawEnabled: {
         type: Boolean,
         default: false
+    },
+    clearDrawingsOnLayerChange: {
+        type: Boolean,
+        default: false
+    },
+    fitAddedLayersToExtent: {
+        type: Boolean,
+        default: false
+    },
+    animationDuration: {
+        type: Number,
+        default: null
     }
 });
 const emit = defineEmits(['drawstart', 'drawend', 'select', 'hover'])
@@ -72,37 +85,12 @@ function rotationChanged(event) {
   emit('change:rotation', currentRotation.value);
 }
 
-let processedLayers = ref<any[]>([]);
-const wktFormat = new WKT();
-const geoJSONFormat = new GeoJSON();
-
-watch(
-    () => props.layers,
-    (newVal) => {
-        let newProcessedLayers = [];
-        for (const layer of newVal) {
-            // check all features for WKT geometry and translate it to GeoJSON
-            const features = layer.features;
-            const geoJSONFeatures = [];
-            for (const feature of features) {
-                let geoJSONFeature = {};
-                if (feature.geoJSON) {
-                    geoJSONFeature = geoJSONFormat.readFeature(feature.geoJSON, props.projection)
-                } else if (feature.wkt) {
-                    geoJSONFeature = wktFormat.readFeature(feature.wkt, props.projection)
-                }
-                geoJSONFeature.name = feature.name;
-                geoJSONFeatures.push(geoJSONFeature);
-            }
-            layer.geoJSONFeatures = geoJSONFeatures;
-            newProcessedLayers.push(layer);
-        }
-        processedLayers.value = newProcessedLayers;
-    },
-    {
-        immediate: true
-    }
-);
+const mapRef = ref<InstanceType<typeof Map.OlMap> | null>(null);
+const viewRef = ref<InstanceType<typeof Map.OlView> | null>(null);
+const layersRef = ref<Array<InstanceType<typeof Map.OlVectorLayer>>| null>(null);
+const layerSourcesRef = ref<Array<InstanceType<typeof Map.OlSourceVector>>| null>(null);
+const clickSelectRef = ref<InstanceType<typeof Interactions.OlInteractionSelect> | null>(null);
+const drawSourceRef = ref<InstanceType<typeof Sources.OlSourceVector> | null>(null);
 
 const options: Vue3OpenlayersGlobalOptions = {
     debug: false,
@@ -113,11 +101,7 @@ provide("ol-options", options);
 const hoveredFeature = ref<Feature | null>(null);
 const selectedFeature = ref<Feature | null>(null);
 const selectedPosition = ref<number[]>([]);
-
-const mapRef = ref<InstanceType<typeof Map.OlMap> | null>(null);
-const viewRef = ref<InstanceType<typeof Map.OlView> | null>(null);
-const clickSelectRef = ref<InstanceType<typeof Interactions.OlInteractionSelect> | null>(null);
-const drawSourceRef = ref<InstanceType<typeof Sources.OlSourceVector> | null>(null);
+const showPopup = ref<boolean>(false);
 
 function featureHover(e: SelectEvent) {
     let selection = null;
@@ -141,8 +125,19 @@ function featureClick(e: SelectEvent) {
     } else {
         selectedFeature.value = null;
     }
-    if (selection) {
-      emit('select', selection);
+    if (selectedFeature.value?.name) {
+      emit('select', selectedFeature.value);
+      showPopup.value = true;
+    } else {
+      showPopup.value = false;
+    }
+}
+
+function escapeOverlay() {
+    if (clickSelectRef.value && selectedFeature.value) {
+        clickSelectRef.value.select.getFeatures().clear();
+        selectedFeature.value = null;
+        showPopup.value = false;
     }
 }
 
@@ -161,8 +156,6 @@ const drawnFeatures : any[] = ref([]);
 const drawstart = (event) => {
     emit('drawstart', geoJSONFormat.writeFeature(event.feature, props.projection));
 };
-
-const drawToggle = useTemplateRef('drawToggle');
 
 const drawend = (event) => {
     const geoJSON = geoJSONFormat.writeFeature(event.feature, props.projection)
@@ -191,12 +184,78 @@ const clearAll = () => {
         }
     }
     drawnFeatures.value = [];
+    escapeOverlay();
 };
+
+let processedLayers = ref<any[]>([]);
+const wktFormat = new WKT();
+const geoJSONFormat = new GeoJSON();
+
+const processLayers = (newLayers) => {
+  let newProcessedLayers = [];
+  for (const layer of newLayers) {
+      // check all features for WKT geometry and translate it to GeoJSON
+      const features = layer.features;
+      const geoJSONFeatures = [];
+      for (const feature of features) {
+          let geoJSONFeature = {};
+          if (feature.geoJSON) {
+              geoJSONFeature = geoJSONFormat.readFeature(feature.geoJSON, props.projection)
+          } else if (feature.wkt) {
+              geoJSONFeature = wktFormat.readFeature(feature.wkt, props.projection)
+          }
+          geoJSONFeature.name = feature.name;
+          geoJSONFeature.data = feature.data;
+          geoJSONFeatures.push(geoJSONFeature);
+      }
+      layer.geoJSONFeatures = geoJSONFeatures;
+      newProcessedLayers.push(layer);
+  }
+  processedLayers.value = newProcessedLayers;
+};
+
+const fitToExtent = (extent) => {
+  if (viewRef.value) {
+    viewRef.value.view.fit(extent, {
+        maxZoom: 20,
+        padding: [32, 32, 32, 32],
+        duration: props.animationDuration
+    });
+  }
+};
+
+// Fits the view to the extent of the last added layer
+const fitToLayerExtent = () => {
+  setTimeout(() => {
+    const layersArray = layerSourcesRef.value;
+    if (layersArray?.length) {
+      const extent = layersArray[layersArray.length - 1].source.getExtent();
+      fitToExtent(extent);
+    }
+  }, 0);
+};
+
+watch(
+    () => props.layers,
+    (newVal) => {
+        processLayers(newVal);
+        if (props.fitAddedLayersToExtent) {
+          fitToLayerExtent();
+        }
+        if (props.clearDrawingsOnLayerChange) {
+          clearDrawings();
+        }
+        escapeOverlay();
+    },
+    {
+        immediate: true
+    }
+);
 </script>
 
 <template>
-    <div class="kai-map" ref="mapRef">
-        <Map.OlMap
+    <div class="kai-map">
+        <Map.OlMap ref="mapRef"
             :loadTilesWhileAnimating="true"
             :loadTilesWhileInteracting="true"
             style="height: 100%; width: 100%; min-height: 400px; min-width: 400px;">
@@ -216,10 +275,11 @@ const clearAll = () => {
             </Layers.OlTileLayer>
 
             <!-- layers -->
-            <Layers.OlVectorLayer v-for="layer in processedLayers" :title="layer.title" :visible="true">
+            <Layers.OlVectorLayer v-for="(layer, index) in processedLayers" :title="layer.title" :visible="true" ref="layersRef">
                 <Sources.OlSourceVector
                     :features="layer.geoJSONFeatures"
                     format="geoJSON"
+                    ref="layerSourcesRef"
                 >
                 </Sources.OlSourceVector>
                 <Styles.OlStyle>
@@ -278,6 +338,15 @@ const clearAll = () => {
                 <div class="overlay-content loading">
                     Loading...
                 </div>
+            </Map.OlOverlay>
+
+            <Map.OlOverlay v-if="showPopup" :position="selectedPosition" positioning="bottom-center" :stopEvent="true">
+              <template v-slot="slotProps">
+                <MapTooltip
+                  :selectedFeature="selectedFeature"
+                  @deselect="escapeOverlay"
+                />
+              </template>
             </Map.OlOverlay>
         </Map.OlMap>
     </div>

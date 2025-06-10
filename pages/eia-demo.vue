@@ -6,26 +6,11 @@
   const appConfig = useAppConfig();
   const loading = ref(false);
   const drawEnabled = ref(false);
-  const layers = ref<any[]>([]);
-
-  async function loadMapData() {
-      loading.value = true;
-      await new Promise(r => setTimeout(r, 1000));
-
-      layers.value = [featureCollection];
-      loading.value = false;
-  }
-
-  async function clearMapData() {
-      layers.value = [];
-  }
 
   // When the user finishes drawing an area, we want to store it for the query.
   let latestDrawnPolygon = null;
 
   function drawend (feature) {
-      console.log('The user drew a feature:');
-      console.log(feature);
       if (feature) {
         try {
           latestDrawnPolygon = feature.wkt;
@@ -59,6 +44,7 @@
   let results = ref([]);
   async function executeQuery(scenarioId) {
     if (latestDrawnPolygon) {
+      loading.value = true;
       const sparqlQueries = {
         1: `PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
     PREFIX geo: <http://www.opengis.net/ont/geosparql#>
@@ -85,39 +71,70 @@
     PREFIX geo: <http://www.opengis.net/ont/geosparql#>
     PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
     PREFIX schema: <https://schema.org/>
+    PREFIX time: <http://www.w3.org/2006/time#>
 
-    SELECT ?iri ?name ?wktGeometry
+    SELECT ?iri ?name ?wktGeometry ?date
     WHERE {
       ?iri a geo:Feature ;
           schema:name ?name ;
           geo:hasGeometry / geo:asWKT ?wktGeometry ;
-          schema:isPartOf <https://linked.data.gov.au/dataset/eiatest/bdr-act/incidental-occurrences> .
-
+          schema:isPartOf <https://linked.data.gov.au/dataset/eiatest/bdr-act/incidental-occurrences> ;
+          time:hasTime / time:inXSDDateTime ?date .
       BIND ("${latestDrawnPolygon}"^^geo:wktLiteral AS ?input_area)
 
       FILTER(geof:sfWithin(?wktGeometry, ?input_area))
     }
-    ORDER BY ?name`
+    ORDER BY DESC(?date) ?name`
       };
 
       let queryResults = await axios.get(apiEndpoint + '/sparql?query=' + encodeURIComponent(sparqlQueries[scenarioId]));
       if (queryResults?.data?.results?.bindings) {
-        results.value = queryResults.data.results.bindings.map((r) => { return { name: r.name.value, iri: r.iri.value } });
+        results.value = queryResults.data.results.bindings.map((r) => {
+          let feature = {
+            name: r.name.value,
+            iri: r.iri.value,
+          };
+          if (r.date) {
+            feature.date = new Date(r.date.value);
+          }
+          return feature;
+        });
         resultLayers.value = [{
           "type": "FeatureCollection",
           "title": scenarioNames[scenarioId],
           "features": queryResults.data.results.bindings.map((r) => {
-            return {
+            let feature = {
               name: r.name.value,
+              data: {
+                iri: r.iri.value
+              },
               type: 'Feature',
               wkt: r.wktGeometry.value
             };
+            if (r.date) {
+              feature.data.date = new Date(r.date.value);
+            }
+            return feature;
           })
         }];
       }
+      loading.value = false;
     } else {
       alert('Please draw an area on the map first')
     }
+  }
+  // this little hack keeps the map where it's at after (re-)loading the layers after a query
+  let currentZoom = 4.5;
+  const onChangeZoom = (newZoom) => {
+    currentZoom = newZoom;
+  }
+  let currentCenter = [133.7751, -25.2744];
+  const onChangeCenter = (newCenter) => {
+    currentCenter = newCenter;
+  }
+  let currentRotation = 0;
+  const onChangeRotation = (newRotation) => {
+    currentRotation = newRotation;
   }
 </script>
 
@@ -133,7 +150,7 @@
     </template>
     <template #default>
       <div class="flex flex-row">
-        <div class="flex-1 p-4">
+        <div class="flex-none p-4 scenarios">
           <p>This web page allows you to test scenarios of data interoperability across datasets in the <a href="#">EIA Test Catalogue</a>.</p>
           <h2 class="text-2xl mt-8">Scenarios</h2>
           <div class="scenario-accordion">
@@ -175,19 +192,25 @@
         <div class="flex-1 p-4 flex flex-col">
           <div class="flex-1">
             <Map class="eia-demo-map"
-                :center="[133.7751, -25.2744]"
-                :zoom="4"
-                :rotation="0"
+                :center="currentCenter"
+                @change:center="onChangeCenter"
+                :zoom="currentZoom"
+                @change:zoom="onChangeZoom"
+                :rotation="currentRotation"
+                @change:rotation="onChangeRotation"
                 :projection="'EPSG:4326'"
                 :layers="resultLayers"
                 :loading="loading"
                 :drawEnabled="drawEnabled"
+                :clearDrawingsOnLayerChange="true"
+                :fitAddedLayersToExtent="true"
+                :animationDuration="1000"
                 @drawend="drawend" />
           </div>
           <div class="flex-1 results-list">
             <h2 class="text-2xl mt-8">Results</h2>
             <div class="results">
-              <li v-for="result in results"><a :href="`/object?uri=${result.iri}`" target="_blank">{{result.name}}</a> </li>
+              <li v-for="result in results"><a :href="`/object?uri=${result.iri}`" target="_blank">{{result.name}}</a> <span v-if="result.date">{{ result.date }}</span></li>
             </div>
           </div>
         </div>
@@ -198,7 +221,10 @@
 
 <style lang="css" scoped>
     .eia-demo-map {
-        height: 500px;
+        height: 600px;
         width: 100%;
+    }
+    .scenarios {
+      width: 500px;
     }
 </style>
