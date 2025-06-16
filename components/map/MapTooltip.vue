@@ -19,6 +19,10 @@ function onEscape(e: KeyboardEvent) {
     }
 }
 
+function hide() {
+    emit("hide");
+}
+
 // convert a camelCase property to a human readable Title Case property
 function convertToTitleCase(text) {
   if (text?.length > 1) {
@@ -38,9 +42,10 @@ onUnmounted(() => {
 
 <template>
     <div class="overlay-content">
-        <div class="title">
-            <span><slot name="title">{{ props.selectedFeature.name }}</slot></span>
-            <button class="map-tooltip-close-btn" aria-label="Close" @click="deselect">&times;</button>
+        <div class="title flex flex-row">
+            <span class="self-start flex-1"><slot name="title">{{ props.selectedFeature.name }}</slot></span>
+            <!-- <button class="self-end flex-0 map-tooltip-hide-btn" aria-label="Hide" title="Hide" @click="hide">&#128683;</button> -->
+            <button class="self-end flex-0 map-tooltip-close-btn" aria-label="Close" title="Close" @click="deselect">&times;</button>
         </div>
         <div v-if="props.selectedFeature.type" class="type">{{ props.selectedFeature.type }}</div>
         <div v-if="props.selectedFeature.data" v-for="item in Object.keys(props.selectedFeature.data)">

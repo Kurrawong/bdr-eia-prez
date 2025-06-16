@@ -141,6 +141,14 @@ function escapeOverlay() {
     }
 }
 
+function hideSelectedFeature() {
+    if (clickSelectRef.value && selectedFeature.value) {
+        clickSelectRef.value.select.getFeatures().clear();
+        selectedFeature.value = null;
+        showPopup.value = false;
+    }
+}
+
 const drawEnabled = ref(props.drawEnabled);
 const drawType = ref('Polygon');
 watch(() => props.drawEnabled, (newVal) => { drawEnabled.value = newVal; }, { immediate:true });
@@ -345,6 +353,7 @@ watch(
                 <MapTooltip
                   :selectedFeature="selectedFeature"
                   @deselect="escapeOverlay"
+                  @hide="hideSelectedFeature"
                 />
               </template>
             </Map.OlOverlay>

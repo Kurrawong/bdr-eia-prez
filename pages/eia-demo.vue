@@ -25,8 +25,12 @@
       name: 'Data Presence',
       areaRequired: true
     },
+    2: {
+      name: 'Datasets by Kind',
+      areaRequired: true
+    },
     3: {
-      name: 'Occurence by area',
+      name: 'Occurence by Area',
       areaRequired: true
     },
     4: {
@@ -334,6 +338,17 @@
                     <li>Click on indicated data on the map or list below the map for details. The results will indicate the data for the last selected area</li>
                   </ol>
                 </div>
+                <div class="bg-gray-100 p-4 cursor-pointer flex justify-between items-center" @click="toggleAccordion(2)">
+                  <h3 class="font-semibold text-lg">S2: Datasets By Kind</h3>
+                  <span class="transform transition-transform" id="arrow-icon-2">▼</span>
+                </div>
+                <div ref="accordion-content-2" class="p-4 hidden" id="accordion-content-2">
+                  <!-- Content for Accordion Item 1 -->
+                  <p>This scenario indicates what datasets are available by kind - a single vocabulary environmental domain classification of all EIA datasets.</p>
+                  <h3 class="underline mt-4"></h3>
+                  <ol class="flex flex-col gap-4">
+                  </ol>
+                </div>
                 <div class="bg-gray-100 p-4 cursor-pointer flex justify-between items-center" @click="toggleAccordion(3)">
                   <h3 class="font-semibold text-lg">S3: Observations by area</h3>
                   <span class="transform transition-transform" id="arrow-icon-3">▼</span>
@@ -433,7 +448,7 @@
                 :layers="resultLayers"
                 :loading="loading"
                 :drawEnabled="drawEnabled"
-                :clearDrawingsOnLayerChange="true"
+                :clearDrawingsOnLayerChange="false"
                 :fitAddedLayersToExtent="true"
                 :animationDuration="1000"
                 @drawend="drawend" />
