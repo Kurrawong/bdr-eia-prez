@@ -109,7 +109,7 @@
         PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
         PREFIX schema: <https://schema.org/>
 
-        SELECT ?iri ?name ?wktGeometry ?kw ?kw_label
+        SELECT ?iri ?name ?wktGeometry ?keywords
         WHERE {
           ?iri
               a schema:Dataset ;
@@ -118,20 +118,21 @@
               geo:hasBoundingBox/geo:asWKT ?wktGeometry ;
           .
 
-          ?kw skos:prefLabel ?kw_label .
+          ?kw skos:prefLabel ?keywords .
 
           BIND ("${latestDrawnPolygon}"^^geo:wktLiteral AS ?input_area)
 
           FILTER geof:sfIntersects(?input_area, ?wktGeometry)
         }
         ORDER BY ?name`,
-    3: (latestDrawnPolygon) => `PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    3: (latestDrawnPolygon) => `PREFIX dwc: <http://rs.tdwg.org/dwc/terms/>
+        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
         PREFIX geo: <http://www.opengis.net/ont/geosparql#>
         PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
         PREFIX schema: <https://schema.org/>
         PREFIX time: <http://www.w3.org/2006/time#>
 
-        SELECT ?iri ?name ?wktGeometry ?date
+        SELECT ?iri ?name ?vernacularName ?date ?wktGeometry
         WHERE {
           ?iri a geo:Feature ;
               schema:name ?name ;
@@ -139,6 +140,10 @@
               schema:isPartOf <https://linked.data.gov.au/dataset/eiatest/bdr-act/incidental-occurrences> ;
               time:hasTime / time:inXSDDateTime ?date .
           BIND ("${latestDrawnPolygon}"^^geo:wktLiteral AS ?input_area)
+          OPTIONAL {
+            ?iri dwc:scientificNameID ?taxon .
+            ?taxon dwc:vernacularName ?vernacularName .
+          }
 
           FILTER(geof:sfWithin(?wktGeometry, ?input_area))
         }
@@ -151,23 +156,24 @@
             PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
             PREFIX time: <http://www.w3.org/2006/time#>
 
-            SELECT ?iri ?wktGeometry ?date ?name
+            SELECT ?iri ?name ?vernacularName ?date ?wktGeometry
             WHERE {
               {
-                  SELECT ?taxon_name ?name
+                  SELECT ?taxon ?name ?vernacularName
                   WHERE {
-                  BIND (<${selectedTaxon.value}> AS ?c)
-                    ?c
-                      skos:inScheme <https://linked.data.gov.au/dataset/eiatest/nsl> ;
-                      skos:narrower* ?taxon_name ;
-                    .
+                    BIND (<${selectedTaxon.value}> AS ?c)
+                      ?c
+                        skos:inScheme <https://linked.data.gov.au/dataset/eiatest/nsl> ;
+                        skos:narrower* ?taxon ;
+                      .
 
-                  ?taxon_name skos:prefLabel ?name .
+                    ?taxon skos:prefLabel ?name .
+                    OPTIONAL { ?taxon dwc:vernacularName ?vernacularName }
                   }
                 }
                 ?iri
                   a dwc:Occurrence ;
-                  dwc:scientificNameID ?taxon_name ;
+                  dwc:scientificNameID ?taxon ;
                   geo:hasGeometry/geo:asWKT ?wktGeometry ;
                   time:hasTime/time:inXSDDateTime ?date ;
                 .
@@ -179,53 +185,57 @@
           PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
           PREFIX time: <http://www.w3.org/2006/time#>
 
-          SELECT ?iri ?wktGeometry ?date ?name
+          SELECT ?iri ?name ?vernacularName ?date ?wktGeometry
           WHERE {
-            {
-                SELECT ?taxon_name ?name
+              {
+                SELECT ?taxon ?name ?vernacularName
                 WHERE {
                   ?c
                     skos:inScheme <https://linked.data.gov.au/dataset/eiatest/nsl> ;
-                    skos:narrower* ?taxon_name ;
+                    skos:narrower* ?taxon ;
                   .
 
-                ?taxon_name skos:prefLabel ?name .
+                  ?taxon skos:prefLabel ?name .
+                  OPTIONAL { ?taxon dwc:vernacularName ?vernacularName }
                 }
               }
               ?iri
                 a dwc:Occurrence ;
-                dwc:scientificNameID ?taxon_name ;
+                dwc:scientificNameID ?taxon ;
                 geo:hasGeometry/geo:asWKT ?wktGeometry ;
                 time:hasTime/time:inXSDDateTime ?date ;
               .
           } ORDER BY DESC(?date) ?name`;
     },
     5: () => {
-      return `PREFIX schema: <http://schema.org/>
+      return `PREFIX schema: <https://schema.org/>
               PREFIX time: <http://www.w3.org/2006/time#>
               PREFIX geo: <http://www.opengis.net/ont/geosparql#>
               PREFIX dwc: <http://rs.tdwg.org/dwc/terms/>
               PREFIX ex: <http://example.com/>
               PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
-              SELECT DISTINCT ?iri ?name ?date ?wktGeometry
+              SELECT DISTINCT ?iri ?name ?vernacularName ?date ?wktGeometry (GROUP_CONCAT(DISTINCT ?otherTraitName; SEPARATOR="; ") AS ?traits)
               WHERE {
                 VALUES ?trait {
                   ${selectedTraits.value.map(trait => `<${trait}>`).join(' ')}
                 }
 
                 ?trait ex:exhibitorOfTrait ?taxa .
-                ?taxa dwc:vernacularName ?name .
+                ?otherTrait ex:exhibitorOfTrait ?taxa ;
+                            skos:definition ?otherTraitName .
+                ?taxa dwc:vernacularName ?vernacularName .
 
                 ?iri
                   dwc:scientificNameID ?taxa ;
                   geo:hasGeometry/geo:asWKT ?wktGeometry ;
                   time:hasTime/time:inXSDDateTime ?date ;
+                  schema:name ?name ;
                 .
 
                 ?ds schema:hasPart* ?iri .
 
-              }`;
+              } GROUP BY ?iri ?name ?vernacularName ?date ?wktGeometry`;
     }
   };
   // we will put the query result geometries in here, so we can display them on the map
@@ -253,11 +263,13 @@
           "type": "FeatureCollection",
           "title": scenarios[scenarioId].name,
           "features": queryResults.data.results.bindings.map((r) => {
+            let resultData = {};
+            for (const key of Object.keys(r)) {
+              resultData[key] = r[key].value;
+            }
             let feature = {
               name: r.name.value,
-              data: {
-                iri: r.iri.value
-              },
+              data: resultData,
               type: 'Feature',
               wkt: r.wktGeometry.value
             };

@@ -19,6 +19,14 @@ function onEscape(e: KeyboardEvent) {
     }
 }
 
+// convert a camelCase property to a human readable Title Case property
+function convertToTitleCase(text) {
+  if (text?.length > 1) {
+    return text.charAt(0).toUpperCase() + text.replace(/([A-Z])/g, " $1").slice(1);
+  }
+  return text;
+}
+
 onMounted(() => {
     document.addEventListener("keyup", onEscape);
 });
@@ -35,7 +43,14 @@ onUnmounted(() => {
             <button class="map-tooltip-close-btn" aria-label="Close" @click="deselect">&times;</button>
         </div>
         <div v-if="props.selectedFeature.type" class="type">{{ props.selectedFeature.type }}</div>
-        <div v-if="props.selectedFeature.data" v-for="item in Object.keys(props.selectedFeature.data)">{{item}}: <span class="metadata">{{ props.selectedFeature.data[item] }}</span></div>
+        <div v-if="props.selectedFeature.data" v-for="item in Object.keys(props.selectedFeature.data)">
+          <div class="tooltip-attribute" v-if="['iri', 'name', 'wktGeometry'].indexOf(item) === -1">
+            {{convertToTitleCase(item)}}: <span class="metadata">{{ props.selectedFeature.data[item] }}</span>
+          </div>
+        </div>
+        <div class="tooltip-attribute" v-if="props.selectedFeature.data.iri">
+          <a class="tooltip-iri" :href="`/object?uri=${props.selectedFeature.data.iri}`" target="_blank">{{props.selectedFeature.data.iri}}</a>
+        </div>
         <div class="metadata">
             <slot name="metadata"></slot>
         </div>
@@ -105,6 +120,12 @@ $arrow-size: 8px;
         border-width: $arrow-size;
         border-style: solid;
         border-color: white transparent transparent transparent;
+    }
+
+    .tooltip-attribute {
+      .tooltip-iri {
+        font-size: smaller;
+      }
     }
 }
 </style>
