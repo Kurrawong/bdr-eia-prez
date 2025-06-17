@@ -55,9 +55,13 @@ const props = defineProps({
     animationDuration: {
         type: Number,
         default: null
+    },
+    enableCustomMapControls: {
+        type: Boolean,
+        default: false
     }
 });
-const emit = defineEmits(['drawstart', 'drawend', 'select', 'hover'])
+const emit = defineEmits(['drawstart', 'drawend', 'select', 'hover', 'change:zoom', 'change:center', 'change:rotation'])
 
 const loading = ref(props.loading);
 watch(() => props.loading, (newVal) => { loading.value = newVal; }, { immediate:true });
@@ -354,13 +358,13 @@ watch(
             <MapControls.OlScalelineControl />
             <MapControls.OlZoomsliderControl />
 
-            <div class="custom-map-controls ol-unselectable ol-control ol-bar ol-group flex flex-row">
+            <div class="custom-map-controls ol-unselectable ol-control ol-bar ol-group flex flex-row"
+                v-if="props.enableCustomMapControls">
               <button type="button" name="drawButton" title="Draw an area on the map" :className="drawModeEnabled ? 'active' : ''" @click="enableDrawMode">&#9186;</button>
               <button type="button" name="clearDrawingsButton" title="Clear all drawn features from the map" @click="clearDrawings">&#9003;</button>
               <button v-if="clickThroughModeEnabled" type="button" class="active" name="clickThroughButton" title="Disable to only select top feature on click" @click="toggleCLickThroughMode">&#128269;</button>
               <button v-else type="button" name="clickThroughButton" title="Enable to select all features on click" @click="toggleCLickThroughMode">&#128269;</button>
               <button type="button" name="clearButton" title="Clear all features from the map" @click="clearAll">&#10060;</button>
-
             </div>
 
             <Map.OlOverlay v-if="loading" :position="center" positioning="center-center">

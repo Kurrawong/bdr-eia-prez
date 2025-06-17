@@ -451,6 +451,7 @@
                 :clearDrawingsOnLayerChange="false"
                 :fitAddedLayersToExtent="true"
                 :animationDuration="1000"
+                :enableCustomMapControls="true"
                 @drawend="drawend" />
           </div>
           <div class="flex-1 results-list">
