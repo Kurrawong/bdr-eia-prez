@@ -17,9 +17,7 @@ if (properties) {
       wkt = wktObject.value;
       objectLayers.value = [{
         "type": "FeatureCollection",
-        "title": 'todo',
         "features": [{
-            name: 'todo',
             type: 'Feature',
             wkt: wkt
           }]
