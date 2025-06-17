@@ -100,8 +100,8 @@ provide("ol-options", options);
 
 const hoveredFeature = ref<Feature | null>(null);
 const selectedFeature = ref<Feature | null>(null);
+const selectedFeatures = ref<Array<Feature>>([]);
 const selectedPosition = ref<number[]>([]);
-const showPopup = ref<boolean>(false);
 
 function featureHover(e: SelectEvent) {
     let selection = null;
@@ -116,36 +116,48 @@ function featureHover(e: SelectEvent) {
     }
 }
 
+function getFeatureCenter(feature: Feature) {
+  if (feature && feature.getGeometry) {
+    return getCenter(feature.getGeometry()!.getExtent());
+  }
+  return null;
+}
+
 function featureClick(e: SelectEvent) {
     let selection = null;
-    if (e.selected.length === 1) {
+    if (e.selected.length > 0) {
+        // depending on props.clickThroughOverlappingFeatures, we handle 1 selected feature, or all of the features at the clicked location
+        // 1. handle the feature on top
         selectedFeature.value = e.selected[0];
-        selection = getCenter(e.selected[0].getGeometry()!.getExtent());
-        selectedPosition.value = getCenter(e.selected[0].getGeometry()!.getExtent());
+        selection = getFeatureCenter(e.selected[0]);
+        selectedPosition.value = selection;
+        // 2. handle all features at the clicked location
+        let clickLocation = e.mapBrowserEvent.pixel;
+        let overlappingFeatures = [];
+        mapRef.value.forEachFeatureAtPixel(clickLocation, function (feature, layer) {
+          if (feature.name) {
+            overlappingFeatures.push(feature);
+          }
+        });
+        selectedFeatures.value = overlappingFeatures;
     } else {
         selectedFeature.value = null;
+        selectedFeatures.value = [];
     }
     if (selectedFeature.value?.name) {
       emit('select', selectedFeature.value);
-      showPopup.value = true;
+    }
+}
+
+function escapeOverlay(selectedFeatureIndex) {
+    if (clickSelectRef.value && selectedFeature.value) {
+        clickSelectRef.value.select.getFeatures().clear();
+        selectedFeature.value = null;
+    }
+    if (selectedFeatureIndex > -1) {
+      selectedFeatures.value.splice(selectedFeatureIndex, 1);
     } else {
-      showPopup.value = false;
-    }
-}
-
-function escapeOverlay() {
-    if (clickSelectRef.value && selectedFeature.value) {
-        clickSelectRef.value.select.getFeatures().clear();
-        selectedFeature.value = null;
-        showPopup.value = false;
-    }
-}
-
-function hideSelectedFeature() {
-    if (clickSelectRef.value && selectedFeature.value) {
-        clickSelectRef.value.select.getFeatures().clear();
-        selectedFeature.value = null;
-        showPopup.value = false;
+      selectedFeatures.value = [];
     }
 }
 
@@ -192,8 +204,15 @@ const clearAll = () => {
         }
     }
     drawnFeatures.value = [];
+    selectedFeatures.value = [];
     escapeOverlay();
 };
+
+const clickThroughModeEnabled = ref<Boolean>(false);
+
+function toggleCLickThroughMode() {
+  clickThroughModeEnabled.value = !clickThroughModeEnabled.value;
+}
 
 let processedLayers = ref<any[]>([]);
 const wktFormat = new WKT();
@@ -223,7 +242,7 @@ const processLayers = (newLayers) => {
 };
 
 const fitToExtent = (extent) => {
-  if (viewRef.value) {
+  if (viewRef.value && extent && extent[0] !== Infinity) {
     viewRef.value.view.fit(extent, {
         maxZoom: 20,
         padding: [32, 32, 32, 32],
@@ -337,7 +356,9 @@ watch(
 
             <div class="custom-map-controls ol-unselectable ol-control ol-bar ol-group flex flex-row">
               <button type="button" name="drawButton" title="Draw an area on the map" :className="drawModeEnabled ? 'active' : ''" @click="enableDrawMode">&#9186;</button>
-              <button type="button" name="clearButton" title="Clear all drawn features from the map" @click="clearDrawings">&#9003;</button>
+              <button type="button" name="clearDrawingsButton" title="Clear all drawn features from the map" @click="clearDrawings">&#9003;</button>
+              <button v-if="clickThroughModeEnabled" type="button" class="active" name="clickThroughButton" title="Disable to only select top feature on click" @click="toggleCLickThroughMode">&#128269;</button>
+              <button v-else type="button" name="clickThroughButton" title="Enable to select all features on click" @click="toggleCLickThroughMode">&#128269;</button>
               <button type="button" name="clearButton" title="Clear all features from the map" @click="clearAll">&#10060;</button>
 
             </div>
@@ -348,12 +369,25 @@ watch(
                 </div>
             </Map.OlOverlay>
 
-            <Map.OlOverlay v-if="showPopup" :position="selectedPosition" positioning="bottom-center" :stopEvent="true">
+
+            <Map.OlOverlay v-if="clickThroughModeEnabled && selectedFeatures && selectedFeatures.length"
+              v-for="(clickedFeature, index) in selectedFeatures"
+              :position="getFeatureCenter(clickedFeature)"
+              positioning="bottom-center"
+              :stopEvent="true">
+              <template v-slot="slotProps">
+                <MapTooltip
+                  :selectedFeature="clickedFeature"
+                  @deselect="() => { escapeOverlay(index) }"
+                />
+              </template>
+            </Map.OlOverlay>
+
+            <Map.OlOverlay v-else-if="selectedFeature && selectedFeature.name" :position="selectedPosition" positioning="bottom-center" :stopEvent="true">
               <template v-slot="slotProps">
                 <MapTooltip
                   :selectedFeature="selectedFeature"
                   @deselect="escapeOverlay"
-                  @hide="hideSelectedFeature"
                 />
               </template>
             </Map.OlOverlay>
