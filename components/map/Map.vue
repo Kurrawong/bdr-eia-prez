@@ -9,6 +9,7 @@ import { getCenter, type Extent } from "ol/extent";
 import { SelectEvent } from "ol/interaction/Select";
 import Style from "ol/style/Style";
 import Stroke from "ol/style/Stroke";
+import { getArea } from "ol/sphere";
 import { mapLayerStyles, drawStyle, hoverStyle } from "./mapstyles.ts";
 import 'vue3-openlayers/dist/vue3-openlayers.css';
 import MapTooltip from "./MapTooltip.vue";
@@ -259,7 +260,15 @@ const processLayers = (newLayers) => {
           geoJSONFeature.data = feature.data;
           geoJSONFeatures.push(geoJSONFeature);
       }
-      layer.geoJSONFeatures = geoJSONFeatures;
+      //sort the features by area large to small, which makes clicking around easier for overlapping areas
+      layer.geoJSONFeatures = geoJSONFeatures.sort((a, b) => {
+        let extentA = a.getGeometry();
+        let extentB = b.getGeometry();
+        let areaA = getArea(extentA);
+        let areaB = getArea(extentB);
+        return areaB - areaA;
+      });
+
       newProcessedLayers.push(layer);
   }
   processedLayers.value = newProcessedLayers;
@@ -343,6 +352,7 @@ function overrideStyleFunction(feature, currentStyle, resolution) {
             <Layers.OlVectorLayer v-for="(layer, index) in processedLayers" :title="layer.title" :visible="true" ref="layersRef">
                 <Sources.OlSourceVector
                     :features="layer.geoJSONFeatures"
+                    :strategy="bbox"
                     format="geoJSON"
                     ref="layerSourcesRef"
                 >
