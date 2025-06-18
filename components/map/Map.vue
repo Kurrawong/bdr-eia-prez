@@ -7,6 +7,8 @@ import { bbox } from "ol/loadingstrategy";
 import { pointerMove, click } from "ol/events/condition";
 import { getCenter, type Extent } from "ol/extent";
 import { SelectEvent } from "ol/interaction/Select";
+import Style from "ol/style/Style";
+import Stroke from "ol/style/Stroke";
 import { mapLayerStyles, drawStyle, hoverStyle } from "./mapstyles.ts";
 import 'vue3-openlayers/dist/vue3-openlayers.css';
 import MapTooltip from "./MapTooltip.vue";
@@ -127,8 +129,25 @@ function getFeatureCenter(feature: Feature) {
   return null;
 }
 
+function selectFeature(feature, fitToFeatureExtent) {
+  selectedFeatures.value = [];
+  selectedFeature.value = feature;
+  let selection = getFeatureCenter(feature);
+  selectedPosition.value = selection;
+  clickSelectRef.value.select.getFeatures().clear();
+  clickSelectRef.value.select.getFeatures().push(feature);
+  if (fitToFeatureExtent) {
+    const extent = feature.getGeometry().getExtent();
+    fitToExtent(extent);
+  }
+  if (selectedFeature.value?.name) {
+    emit('select', selectedFeature.value);
+  }
+}
+
 function featureClick(e: SelectEvent) {
     let selection = null;
+
     if (e.selected.length > 0) {
         // depending on props.clickThroughOverlappingFeatures, we handle 1 selected feature, or all of the features at the clicked location
         // 1. handle the feature on top
@@ -137,6 +156,7 @@ function featureClick(e: SelectEvent) {
         selectedPosition.value = selection;
         // 2. handle all features at the clicked location
         let clickLocation = e.mapBrowserEvent.pixel;
+
         let overlappingFeatures = [];
         mapRef.value.forEachFeatureAtPixel(clickLocation, function (feature, layer) {
           if (feature.name) {
@@ -214,7 +234,7 @@ const clearAll = () => {
 
 const clickThroughModeEnabled = ref<Boolean>(false);
 
-function toggleCLickThroughMode() {
+function toggleClickThroughMode() {
   clickThroughModeEnabled.value = !clickThroughModeEnabled.value;
 }
 
@@ -282,6 +302,20 @@ watch(
         immediate: true
     }
 );
+
+// this ensures that when the tooltip for an underlying feature is clicked, the feature is brought to the foreground of the map
+function overrideStyleFunction(feature, currentStyle, resolution) {
+  if (feature.data?.iri && feature.data?.iri === selectedFeature.value?.data?.iri) {
+    return new Style({
+      fill: currentStyle.fill_,
+      stroke: currentStyle.stroke_,
+      image: currentStyle.image_,
+      geometryFunction: currentStyle.geometryFunction_,
+      zIndex: 1
+    });
+  }
+  return currentStyle
+}
 </script>
 
 <template>
@@ -343,7 +377,7 @@ watch(
             </Layers.OlVectorLayer>
 
             <Interactions.OlInteractionSelect :condition="click" @select="featureClick" ref="clickSelectRef">
-                <Styles.OlStyle>
+                <Styles.OlStyle :overrideStyleFunction="overrideStyleFunction">
                     <Styles.OlStyleStroke color="blue" :width="2"></Styles.OlStyleStroke>
                     <Styles.OlStyleFill color="rgba(0, 190, 110, 0.4)"></Styles.OlStyleFill>
                     <Styles.OlStyleCircle :radius="5">
@@ -362,8 +396,8 @@ watch(
                 v-if="props.enableCustomMapControls">
               <button type="button" name="drawButton" title="Draw an area on the map" :className="drawModeEnabled ? 'active' : ''" @click="enableDrawMode">&#9186;</button>
               <button type="button" name="clearDrawingsButton" title="Clear all drawn features from the map" @click="clearDrawings">&#9003;</button>
-              <button v-if="clickThroughModeEnabled" type="button" class="active" name="clickThroughButton" title="Disable to only select top feature on click" @click="toggleCLickThroughMode">&#128269;</button>
-              <button v-else type="button" name="clickThroughButton" title="Enable to select all features on click" @click="toggleCLickThroughMode">&#128269;</button>
+              <button v-if="clickThroughModeEnabled" type="button" class="active" name="clickThroughButton" title="Disable to only select top feature on click" @click="toggleClickThroughMode">&DoubleDownArrow;</button>
+              <button v-else type="button" name="clickThroughButton" title="Enable to select all overlapping features on click" @click="toggleClickThroughMode">&DoubleDownArrow;</button>
               <button type="button" name="clearButton" title="Clear all features from the map" @click="clearAll">&#10060;</button>
             </div>
 
@@ -382,6 +416,7 @@ watch(
               <template v-slot="slotProps">
                 <MapTooltip
                   :selectedFeature="clickedFeature"
+                  @select="selectFeature"
                   @deselect="() => { escapeOverlay(index) }"
                 />
               </template>
@@ -391,6 +426,7 @@ watch(
               <template v-slot="slotProps">
                 <MapTooltip
                   :selectedFeature="selectedFeature"
+                  @select="selectFeature"
                   @deselect="escapeOverlay"
                 />
               </template>
@@ -402,6 +438,7 @@ watch(
 <style scoped>
 .kai-map {
     position: relative;
+    min-height: 400px;
     height: 100%;
     width: 100%;
 }

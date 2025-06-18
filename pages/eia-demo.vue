@@ -27,7 +27,7 @@
     },
     2: {
       name: 'Datasets by Kind',
-      areaRequired: true
+      areaRequired: false
     },
     3: {
       name: 'Occurence by Area',
@@ -56,6 +56,15 @@
   }
   // queries to search for preliminary results before applying them to the map
   const searchQueries = {
+    2: () => `PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+        SELECT DISTINCT ?iri ?name ?topConcept ?topConceptName
+        WHERE {
+           ?topConcept skos:topConceptOf <https://linked.data.gov.au/eia-dk> ;
+                       skos:prefLabel ?topConceptName .
+           ?iri skos:broader ?topConcept ;
+                            skos:prefLabel ?name .
+        }`,
     4: (searchText) => `PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
         PREFIX text: <http://jena.apache.org/text#>
 
@@ -84,7 +93,7 @@
   const searchResults = ref<any[]>([]);
   const selectedTaxon = ref<string>();
   const selectedTraits = ref<string[]>([]);
-  async function executeSearchQuery(scenarioId) {
+  async function executeSearchQuery(scenarioId, next) {
     selectedTaxon.value = null;
     selectedTraits.value = [];
     searchResults.value = [];
@@ -92,15 +101,95 @@
       let queryResults = await axios.get(apiEndpoint + '/sparql?query=' + encodeURIComponent(searchQueries[scenarioId](searchText.value || '*')));
       if (queryResults?.data?.results?.bindings) {
         searchResults.value = queryResults.data.results.bindings.map((r) => {
+          let resultData = {};
+          for (const key of Object.keys(r)) {
+            resultData[key] = r[key].value;
+          }
           let feature = {
             name: r.name.value,
             iri: r.iri.value,
+            data: resultData
           };
           if (r.date) {
             feature.date = new Date(r.date.value);
           }
           return feature;
         });
+      }
+    }
+    if (typeof next === 'function') {
+      next();
+    }
+  }
+
+  // Scenario 2 specific data
+  const selectedDataKinds = ref<string[]>([]);
+  const selectedTopConcepts = ref<string[]>([]);
+  const topDataKindConcepts = ref<any[]>([]);
+  // process the flat list of searchResults into a hierarchical list of concepts
+  function getDataKinds(selectAll) {
+    let topDataKindConceptsMap = {};
+    selectedTopConcepts.value = [];
+    selectedDataKinds.value = [];
+    if (searchResults?.value?.length) {
+      for (const narrowerConcept of searchResults.value) {
+        if (!topDataKindConceptsMap[narrowerConcept.data.topConcept]) {
+          topDataKindConceptsMap[narrowerConcept.data.topConcept] = {
+            iri: narrowerConcept.data.topConcept,
+            name: narrowerConcept.data.topConceptName,
+            narrowerConcepts: []
+          };
+          if (selectAll) {
+            selectedTopConcepts.value.push(narrowerConcept.data.topConcept);
+          }
+        }
+        topDataKindConceptsMap[narrowerConcept.data.topConcept].narrowerConcepts.push(narrowerConcept);
+        if (selectAll) {
+          selectedDataKinds.value.push(narrowerConcept.iri);
+        }
+      }
+      topDataKindConcepts.value = Object.keys(topDataKindConceptsMap).map((topConceptIri) => {
+        return topDataKindConceptsMap[topConceptIri];
+      });
+    }
+  }
+
+  function toggleTopConcept(topConcept) {
+    if (selectedTopConcepts.value.includes(topConcept.iri)) {
+      // select all narrower concepts
+      for (const narrowerConcept of topConcept.narrowerConcepts) {
+        if (!selectedDataKinds.value.includes(narrowerConcept.iri)) {
+          selectedDataKinds.value.push(narrowerConcept.iri);
+        }
+      }
+    } else {
+      for (const narrowerConcept of topConcept.narrowerConcepts) {
+        let i = selectedDataKinds.value.indexOf(narrowerConcept.iri);
+        if (i > -1) {
+          selectedDataKinds.value.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  function toggleDatakind(dataKind) {
+    // recalculate the selectedTopConcepts
+    for (const topConcept of topDataKindConcepts.value) {
+      let selectTopConcept = true;
+      for (const narrowerConcept of topConcept.narrowerConcepts) {
+        if (!selectedDataKinds.value.includes(narrowerConcept.iri)) {
+          selectTopConcept = false;
+        }
+      }
+      let i = selectedTopConcepts.value.indexOf(topConcept.iri);
+      if (selectTopConcept) {
+        if (i === -1) {
+          selectedTopConcepts.value.push(topConcept.iri);
+        }
+      } else {
+        if (i > -1) {
+          selectedTopConcepts.value.splice(i, 1);
+        }
       }
     }
   }
@@ -113,7 +202,7 @@
         PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
         PREFIX schema: <https://schema.org/>
 
-        SELECT ?iri ?name ?wktGeometry ?keywords
+        SELECT ?iri ?name (GROUP_CONCAT(DISTINCT ?keywordLabel; SEPARATOR="; ") AS ?keywords) ?description ?wktGeometry
         WHERE {
           ?iri
               a schema:Dataset ;
@@ -122,12 +211,35 @@
               geo:hasBoundingBox/geo:asWKT ?wktGeometry ;
           .
 
-          ?kw skos:prefLabel ?keywords .
+          OPTIONAL { ?iri schema:description ?description . }
+
+          ?kw skos:prefLabel ?keywordLabel ;
+              skos:inScheme <http://vocabs.lter-europe.net/EnvThes> .
 
           BIND ("${latestDrawnPolygon}"^^geo:wktLiteral AS ?input_area)
 
           FILTER geof:sfIntersects(?input_area, ?wktGeometry)
-        }
+        } GROUP BY ?iri ?name ?description ?wktGeometry
+        ORDER BY ?name`,
+    2: () => `PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+        PREFIX schema: <https://schema.org/>
+        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+        SELECT DISTINCT ?iri ?name (GROUP_CONCAT(DISTINCT ?keywordLabel; SEPARATOR="; ") AS ?keywords) ?description ?wktGeometry WHERE {
+          VALUES ?dataKind {
+            ${selectedDataKinds.value.map(dataKind => `<${dataKind}>`).join(' ')}
+          }
+          ?iri a schema:Dataset ;
+               schema:keywords ?dataKind ;
+               schema:keywords ?kw ;
+               schema:name ?name .
+
+         ?kw skos:prefLabel ?keywordLabel ;
+             skos:inScheme <http://vocabs.lter-europe.net/EnvThes> .
+
+          OPTIONAL { ?iri schema:description ?description . }
+          OPTIONAL { ?iri geo:hasBoundingBox / geo:asWKT ?wktGeometry . }
+        } GROUP BY ?iri ?name ?description ?wktGeometry
         ORDER BY ?name`,
     3: (latestDrawnPolygon) => `PREFIX dwc: <http://rs.tdwg.org/dwc/terms/>
         PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -135,11 +247,23 @@
         PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
         PREFIX schema: <https://schema.org/>
         PREFIX time: <http://www.w3.org/2006/time#>
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-        SELECT ?iri ?name ?vernacularName ?date ?wktGeometry
+        SELECT ?iri ?name ?vernacularName ?date ?wktGeometry (GROUP_CONCAT(DISTINCT ?datasetKeyword; SEPARATOR="; ") AS ?envthesKeywords)
         WHERE {
+          {
+            SELECT ?topLevelDataset WHERE {
+              VALUES ?dataKind {
+                ${selectedDataKinds.value.map(dataKind => `<${dataKind}>`).join(' ')}
+              }
+              ?topLevelDataset a schema:Dataset ;
+                   schema:keywords ?dataKind .
+            }
+          }
+
           ?iri a geo:Feature ;
               schema:name ?name ;
+              ^rdfs:member ?dataset ;
               geo:hasGeometry / geo:asWKT ?wktGeometry ;
               schema:isPartOf <https://linked.data.gov.au/dataset/eiatest/bdr-act/incidental-occurrences> ;
               time:hasTime / time:inXSDDateTime ?date .
@@ -150,8 +274,12 @@
           }
 
           FILTER(geof:sfWithin(?wktGeometry, ?input_area))
-        }
-        ORDER BY DESC(?date) ?name`,
+
+          ?topLevelDataset rdfs:member ?dataset ;
+                   schema:keywords ?kw .
+          ?kw skos:prefLabel ?datasetKeyword ;
+              skos:inScheme <http://vocabs.lter-europe.net/EnvThes> .
+        } GROUP BY ?iri ?name ?vernacularName ?date ?wktGeometry`,
     4: () => {
       if (selectedTaxon && selectedTaxon.value) {
         return `PREFIX dwc: <http://rs.tdwg.org/dwc/terms/>
@@ -338,7 +466,7 @@
                     <li>Click on indicated data on the map or list below the map for details. The results will indicate the data for the last selected area</li>
                   </ol>
                 </div>
-                <div class="bg-gray-100 p-4 cursor-pointer flex justify-between items-center" @click="toggleAccordion(2)">
+                <div class="bg-gray-100 p-4 cursor-pointer flex justify-between items-center" @click="() => { toggleAccordion(2); executeSearchQuery(2, getDataKinds); }">
                   <h3 class="font-semibold text-lg">S2: Datasets By Kind</h3>
                   <span class="transform transition-transform" id="arrow-icon-2">▼</span>
                 </div>
@@ -347,9 +475,40 @@
                   <p>This scenario indicates what datasets are available by kind - a single vocabulary environmental domain classification of all EIA datasets.</p>
                   <h3 class="underline mt-4"></h3>
                   <ol class="flex flex-col gap-4">
+                    <li class="flex flex-col">Select one or more data kinds to display the available datasets.
+                      <fieldset v-if="topDataKindConcepts && topDataKindConcepts.length" class="fieldset bg-base-100 border-base-300 rounded-box w-64 border p-4">
+                        <legend class="fieldset-legend">Available kinds:</legend>
+                        <div class="top-concept" v-for="topDataKind in topDataKindConcepts">
+                          <input
+                            type="checkbox"
+                            :name="topDataKind.iri"
+                            :value="topDataKind.iri"
+                            v-model="selectedTopConcepts"
+                            class="checkbox mr-2"
+                            @change="toggleTopConcept(topDataKind); executeQuery(2);"
+                            />
+                          <label>
+                              {{topDataKind.name}}
+                          </label>
+                          <div class="narrower-concept ml-4" v-for="narrowerDataKind in topDataKind.narrowerConcepts">
+                            <input
+                              type="checkbox"
+                              :name="narrowerDataKind.iri"
+                              :value="narrowerDataKind.iri"
+                              v-model="selectedDataKinds"
+                              class="checkbox mr-2"
+                              @change="toggleDatakind(narrowerDataKind); executeQuery(2);"
+                              />
+                            <label>
+                                {{narrowerDataKind.name}}
+                            </label>
+                          </div>
+                        </div>
+                      </fieldset>
+                    </li>
                   </ol>
                 </div>
-                <div class="bg-gray-100 p-4 cursor-pointer flex justify-between items-center" @click="toggleAccordion(3)">
+                <div class="bg-gray-100 p-4 cursor-pointer flex justify-between items-center" @click="() => { toggleAccordion(3); executeSearchQuery(2, () => { getDataKinds(true); }); }">
                   <h3 class="font-semibold text-lg">S3: Observations by area</h3>
                   <span class="transform transition-transform" id="arrow-icon-3">▼</span>
                 </div>
@@ -361,6 +520,37 @@
                     <li class="flex flex-col">Select an area on the map by enabling draw mode using the polygon icon at the top of the map</li>
                     <li class="flex flex-row"><span>Click GO</span><span class="ml-5"><button class="bg-gray-500 hover:bg-blue-700 text-white font-bold px-2 rounded" type="button" name="go-button" @click="executeQuery(3)">GO</button></span></li>
                     <li>Click on indicated data on the map or list below the map for details. The results will indicate the data for the last selected area</li>
+                    <li class="flex flex-col">Additionally, you may filter out one or more data kinds. By default, all kinds are selected.
+                      <fieldset v-if="topDataKindConcepts && topDataKindConcepts.length" class="fieldset bg-base-100 border-base-300 rounded-box w-64 border p-4">
+                        <legend class="fieldset-legend">Available kinds:</legend>
+                        <div class="top-concept" v-for="topDataKind in topDataKindConcepts">
+                          <input
+                            type="checkbox"
+                            :name="topDataKind.iri"
+                            :value="topDataKind.iri"
+                            v-model="selectedTopConcepts"
+                            class="checkbox mr-2"
+                            @change="toggleTopConcept(topDataKind); executeQuery(3);"
+                            />
+                          <label>
+                              {{topDataKind.name}}
+                          </label>
+                          <div class="narrower-concept ml-4" v-for="narrowerDataKind in topDataKind.narrowerConcepts">
+                            <input
+                              type="checkbox"
+                              :name="narrowerDataKind.iri"
+                              :value="narrowerDataKind.iri"
+                              v-model="selectedDataKinds"
+                              class="checkbox mr-2"
+                              @change="toggleDatakind(narrowerDataKind); executeQuery(3);"
+                              />
+                            <label>
+                                {{narrowerDataKind.name}}
+                            </label>
+                          </div>
+                        </div>
+                      </fieldset>
+                    </li>
                   </ol>
                 </div>
                 <div class="bg-gray-100 p-4 cursor-pointer flex justify-between items-center" @click="() => { toggleAccordion(4); executeSearchQuery(4); }">
@@ -466,7 +656,7 @@
   </NuxtLayout>
 </template>
 
-<style lang="css" scoped>
+<style lang="scss" scoped>
     .eia-demo-map {
         height: 600px;
         width: 100%;

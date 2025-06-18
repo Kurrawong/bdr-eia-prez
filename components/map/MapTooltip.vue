@@ -7,20 +7,20 @@ const props = defineProps<{
     selectedFeature: Feature;
 }>();
 
-const emit = defineEmits(["deselect"]);
+const emit = defineEmits(["deselect", "select"]);
+
+function select(fitToFeatureExtent) {
+    emit("select", props.selectedFeature, fitToFeatureExtent);
+}
 
 function deselect() {
-    emit("deselect");
+    emit("deselect", props.selectedFeature);
 }
 
 function onEscape(e: KeyboardEvent) {
     if (e.key === "Escape") {
         deselect();
     }
-}
-
-function hide() {
-    emit("hide");
 }
 
 // convert a camelCase property to a human readable Title Case property
@@ -41,23 +41,27 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="overlay-content">
+    <div class="tooltip-content">
         <div class="title flex flex-row">
-            <span class="self-start flex-1"><slot name="title">{{ props.selectedFeature.name }}</slot></span>
-            <!-- <button class="self-end flex-0 map-tooltip-hide-btn" aria-label="Hide" title="Hide" @click="hide">&#128683;</button> -->
+            <span class="self-start flex-1" @click="select(false)"><slot name="title">{{ props.selectedFeature.name }}</slot></span>
+            <button class="self-end flex-0 map-tooltip-select-btn" aria-label="Select and zoom" title="Select and zoom" @click="select(true)">&#128269;</button>
             <button class="self-end flex-0 map-tooltip-close-btn" aria-label="Close" title="Close" @click="deselect">&times;</button>
         </div>
         <div v-if="props.selectedFeature.type" class="type">{{ props.selectedFeature.type }}</div>
-        <div v-if="props.selectedFeature.data" v-for="item in Object.keys(props.selectedFeature.data)">
-          <div class="tooltip-attribute" v-if="['iri', 'name', 'wktGeometry'].indexOf(item) === -1">
-            {{convertToTitleCase(item)}}: <span class="metadata">{{ props.selectedFeature.data[item] }}</span>
-          </div>
-        </div>
         <div class="tooltip-attribute" v-if="props.selectedFeature.data.iri">
           <a class="tooltip-iri" :href="`/object?uri=${props.selectedFeature.data.iri}`" target="_blank">{{props.selectedFeature.data.iri}}</a>
         </div>
         <div class="metadata">
-            <slot name="metadata"></slot>
+            <slot name="metadata">
+              <div v-if="props.selectedFeature.data" v-for="item in Object.keys(props.selectedFeature.data)">
+                <div class="tooltip-attribute flex flex-row" v-if="['iri', 'name', 'wktGeometry'].indexOf(item) === -1">
+                  <div class="attribute-title">
+                   <b>{{convertToTitleCase(item)}}</b>:
+                  </div>
+                  <div class="ml-1">{{ props.selectedFeature.data[item] }}</div>
+                </div>
+              </div>
+            </slot>
         </div>
     </div>
 </template>
@@ -65,8 +69,8 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 $arrow-size: 8px;
 
-.overlay-content {
-    background-color: white;
+.tooltip-content {
+    background-color: rgba(255,255,255,1);
     border: 1px solid #cccccc;
     padding: 12px;
     border-radius: 0.25rem;
@@ -74,7 +78,8 @@ $arrow-size: 8px;
     flex-direction: column;
     gap: 8px;
     margin-bottom: $arrow-size; // offset arrow height
-    width: 400px;
+    min-width: 500px;
+    max-width: 700px;
 
     .title {
         font-weight: bold;
