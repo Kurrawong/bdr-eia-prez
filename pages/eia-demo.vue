@@ -386,7 +386,8 @@
     <template #default>
       <div class="flex flex-row">
         <div class="flex-none p-4 scenarios">
-          <p>This web page allows you to test scenarios of data interoperability across datasets in the <a href="#">EIA Test Catalogue</a>.</p>
+          <p>Here are test scenarios of data interoperability across datasets in the <a href="#">EIA Test Catalogue</a>.</p>
+          <p>There is only data for the ACT area, so make sure any area selections include the all, or part of, the ACT.</p>
           <h2 class="text-2xl mt-8">Scenarios</h2>
           <div class="scenario-accordion">
             <div class="">
